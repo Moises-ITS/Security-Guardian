@@ -1,13 +1,10 @@
 name: DevSecOps Guardian
 
-on: #Defines events
-  push: #Every time code is sent to main and develop, guardian runs
-    branches: [ "main", "develop" ]
-  pull_request: #Before a merge is completed, guardian must accept
-    branches: [ "main" ]
-
+on: [push, pull_request]
+  
 jobs:
-  secret-scan:
+#LAYER 1 - SECRET SCAN / SCA
+  Vulnerability-triage:
     runs-on: ubuntu-latest #pulls up a virtual linux machine to run tests
     steps:
       - name: Checkout Code
@@ -19,26 +16,38 @@ jobs:
         uses: GitGuardian/ggshield-action@v1.27.0 #Pulls in GitGuardian engine that scans for over 400+ credential types
         env:
           GITGUARDIAN_API_KEY: ${{ secrets.GITGUARDIAN_API_KEY }} #Secure variable that connects to private API key without showing in logs
+          
+      - name: Dependency Scan (Snyk)
+        uses: snyk/actions/node@master # Or python
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
 
+#Layer 2 - CODE ANALYSIS (SAST)
   static-analysis:
-    needs: secret-scan #Dependency: if secret scan failed(Ex. Leaked password), this task wont start
+    needs: Vulnerability-triage #Dependency: if secret scan failed(Ex. Leaked password), this task wont start
     runs-on: ubuntu-latest
     permissions:
       security-events: write #Gives guardian permission to write findings into repo report
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Initialize CodeQL #Github's security engine: converts code into searchable database to find vulnerabilities
+      - uses: actions/checkout@v4
+      - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: javascript, python, go #Languages project is written in so guardian can read
-
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
-
-      - name: Perform Analysis #analyzes code and flags vulnerabilities
+          languages: javascript, typescript, python
+      - name: Perform Analysis
         uses: github/codeql-action/analyze@v3
+#Layer 3 - IaC (Cloud)
+  infrastructure-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkov (IaC Scan)
+        uses: bridgecrewio/checkov-action@master
+        with:
+          direction: .
+          framework: dockerfile, github_actions
 
       - name: Shield Status
         if: success()
