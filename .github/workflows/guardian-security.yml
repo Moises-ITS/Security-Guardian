@@ -1,38 +1,38 @@
 name: DevSecOps Guardian
 
-on:
-  push:
+on: #Defines events
+  push: #Every time code is sent to main and develop, guardian runs
     branches: [ "main", "develop" ]
-  pull_request:
+  pull_request: #Before a merge is completed, guardian must accept
     branches: [ "main" ]
 
 jobs:
   secret-scan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest #pulls up a virtual linux machine to run tests
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4 #Pulls code into linux machine to make it readable
         with:
-          fetch-depth: 0
+          fetch-depth: 0 #Github only looks at most recent, 0 sets this to entire history of project
 
       - name: GitGuardian Scan
-        uses: GitGuardian/ggshield-action@v1.27.0
+        uses: GitGuardian/ggshield-action@v1.27.0 #Pulls in GitGuardian engine that scans for over 400+ credential types
         env:
-          GITGUARDIAN_API_KEY: ${{ secrets.GITGUARDIAN_API_KEY }}
+          GITGUARDIAN_API_KEY: ${{ secrets.GITGUARDIAN_API_KEY }} #Secure variable that connects to private API key without showing in logs
 
   static-analysis:
-    needs: secret-scan
+    needs: secret-scan #Dependency: if secret scan failed(Ex. Leaked password), this task wont start
     runs-on: ubuntu-latest
     permissions:
-      security-events: write
+      security-events: write #Gives guardian permission to write findings into repo report
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Initialize CodeQL
+      - name: Initialize CodeQL #Github's security engine: converts code into searchable database to find vulnerabilities
         uses: github/codeql-action/init@v3
         with:
-          languages: javascript, python, go
+          languages: javascript, python, go #Languages project is written in so guardian can read
 
-      - name: Perform Analysis
+      - name: Perform Analysis #analyzes code and flags vulnerabilities
         uses: github/codeql-action/analyze@v3
