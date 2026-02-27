@@ -34,5 +34,19 @@ jobs:
         with:
           languages: javascript, python, go #Languages project is written in so guardian can read
 
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
       - name: Perform Analysis #analyzes code and flags vulnerabilities
         uses: github/codeql-action/analyze@v3
+
+      - name: Shield Status
+        if: success()
+        run: echo "Guardian Shield is Active. Code is secure for deployment."
+
+      - name: Shield Failure
+        if: failure()
+        run: |
+          echo "Security Breach: found vulnerabilities. Deployment Blocked."
+          exit 1
+        
