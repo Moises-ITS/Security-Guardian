@@ -48,14 +48,51 @@ jobs:
         with:
           direction: .
           framework: dockerfile, github_actions
+#Layer 4 - Dependency Audit (Prevents members from adding libraries with high vulnerabilities
+  dependency-audit:
+     runs-on: ubunutu-latest
+     steps:
+       - name: Checkout Repository
+         uses: actions/checkout@v4
+         with:
+        #Only fail build for high or critical vulnerabilities
+           severity-threshold: high
+          #These licenses  are blocked because they could force open-source code
+           deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0
+  #Container Security
+  container-security:
+    runs-on: ubuntu-latest
+    steps:
+     - name: Checkout code
+       uses: actions/checkout@v4
 
+     - name: Build local Docker image
+       run: docker build -t club-webapp:latest #Assembles Docker machine and takes Docketfile to build container, tagged to know which object to inspect
+        #club-webapp is an image
+     - name: Scan Imagge with Trivy #Trivy contains a database of CVE and compares them with Docker Image
+       uses: aquasecurity/trivy-action@master
+       with:
+         image-ref: 'club-webapp:latest' #points Trivy to specific images we built
+         format: 'table' #Format: makes output readable in Github actions logs
+         exit-code: '1'
+         ignore-unfixed: true #Filters "noise", often vulnerabilities are found that don't have a fix yet so we don't respond
+         severity: 'CRITICAL,HIGH' #threshhold for guardian to not stop the development because of a low level risk
+
+  gatekeeper:
+    needs: [Vulnerability-triage, static-analysis, dependency-audit, container-security] #Ensures all scans finish first
+    runs-on: ubuntu-latest
+    if: always() #runs even if previous steps failed so failure is reported
+    steps:
       - name: Shield Status
-        if: success()
-        run: echo "Guardian Shield is Active. Code is secure for deployment."
+        if: ${{ !contains(needs.*.result, 'failure') }}
+        run: echo " Guardian is Active. Code is Secure. "
 
       - name: Shield Failure
-        if: failure()
+        if: ${{ contains(needs.*.result, 'failure') }}
         run: |
-          echo "Security Breach: found vulnerabilities. Deployment Blocked."
+          echo " Security Breach Detected. Found Vulnerabilities. Deployment Blocked. "
           exit 1
-        
+          
+          #Secret Orchestration(AWS Secrets Manager, HashiCorp Vault)
+          #WAF(Cloud Flare)
+          #Supply Chain Integrity(Sign commits with GPG Key)
