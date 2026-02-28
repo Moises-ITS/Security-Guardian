@@ -1,6 +1,10 @@
 name: DevSecOps Guardian
 
-on: [push, pull_request]
+on: 
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
   
 jobs:
 #LAYER 1 - SECRET SCAN / SCA
@@ -12,6 +16,25 @@ jobs:
         with:
           fetch-depth: 0 #Github only looks at most recent, 0 sets this to entire history of project
 
+      - name: Setup Node.js
+        uses: action/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Dependencies
+        run: npm ci #safer than 'npm install' 
+
+      - name: Run Security Linter
+        run: npm run lint
+        #triggers ESLint rules(eval() and unsafe-regex)continue-on-error: 
+
+      - name: Scan for Hardcoded Secrets #Smartbot that looks for Strings resembling AWS keys or Firebase tokens
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          extra_args: --debug --only-verified
+        
       - name: GitGuardian Scan
         uses: GitGuardian/ggshield-action@v1.27.0 #Pulls in GitGuardian engine that scans for over 400+ credential types
         env:
@@ -32,25 +55,26 @@ jobs:
       security-events: write #Gives guardian permission to write findings into repo report
     steps:
       - uses: actions/checkout@v4
-      - name: Initialize CodeQL
+      - name: Initialize CodeQL #CodeQL doesnt just read text but builds a map of data flows to find sql injections or insecure data routing
         uses: github/codeql-action/init@v3
         with:
           languages: javascript, typescript, python
       - name: Perform Analysis
         uses: github/codeql-action/analyze@v3
+        
 #Layer 3 - IaC (Cloud)
   infrastructure-security:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Checkov (IaC Scan)
-        uses: bridgecrewio/checkov-action@master
+        uses: bridgecrewio/checkov-action@master #scans Dockerfile and GitHub actions for misconfigurations like running container as root
         with:
-          direction: .
+          directory: .
           framework: dockerfile, github_actions
 #Layer 4 - Dependency Audit (Prevents members from adding libraries with high vulnerabilities
   dependency-audit:
-     runs-on: ubunutu-latest
+     runs-on: ubuntu-latest
      steps:
        - name: Checkout Repository
          uses: actions/checkout@v4
@@ -59,7 +83,9 @@ jobs:
            severity-threshold: high
           #These licenses  are blocked because they could force open-source code
            deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0
-  #Container Security
+       - name: Security Audit Dependencies
+         run: npm audit --audit-level=high #Queries the global database of hacked libraries, blocks build if one is detected
+#Layer 5 - Container Security
   container-security:
     runs-on: ubuntu-latest
     steps:
@@ -70,16 +96,16 @@ jobs:
        run: docker build -t club-webapp:latest #Assembles Docker machine and takes Docketfile to build container, tagged to know which object to inspect
         #club-webapp is an image
      - name: Scan Imagge with Trivy #Trivy contains a database of CVE and compares them with Docker Image
-       uses: aquasecurity/trivy-action@master
+       uses: aquasecurity/trivy-action@master #Trivy scans the internal Linux OS inside the container for vulnerabilities
        with:
          image-ref: 'club-webapp:latest' #points Trivy to specific images we built
          format: 'table' #Format: makes output readable in Github actions logs
          exit-code: '1'
          ignore-unfixed: true #Filters "noise", often vulnerabilities are found that don't have a fix yet so we don't respond
          severity: 'CRITICAL,HIGH' #threshhold for guardian to not stop the development because of a low level risk
-
+         
   gatekeeper:
-    needs: [Vulnerability-triage, static-analysis, dependency-audit, container-security] #Ensures all scans finish first
+    needs: [Vulnerability-triage, static-analysis, infrastructure-security, dependency-audit, container-security] #Ensures all scans finish first
     runs-on: ubuntu-latest
     if: always() #runs even if previous steps failed so failure is reported
     steps:
