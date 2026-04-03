@@ -68,18 +68,7 @@ jobs:
       - name: Perform Analysis
         uses: github/codeql-action/analyze@v3 #Actual use of CodeQL
         
-#Layer 3 - IaC (Cloud) - Only used for cloud security like Docker; optional comment out
-  infrastructure-security:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Checkov (IaC Scan)
-        uses: bridgecrewio/checkov-action@master #scans Dockerfile and GitHub actions for misconfigurations like running container as root
-        with:
-          directory: .
-          framework: dockerfile, github_actionsz
-        
-#Layer 4 - Dependency Audit (Prevents members from adding libraries with high vulnerabilities and prevents from dangerous licenses(stay out of legal issues)
+#Layer 3 - Dependency Audit (Prevents members from adding libraries with high vulnerabilities and prevents from dangerous licenses(stay out of legal issues)
 #Gets inforced before CI
   dependency-audit:
      runs-on: ubuntu-latest
@@ -93,7 +82,24 @@ jobs:
            deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0
        - name: Security Audit Dependencies
          run: npm audit --audit-level=high #Queries the global database of hacked libraries, blocks build if one is detected
-#Layer 5 - Container Security
+
+#------------------------------------------------------------------------------------------------------------------------------
+#Optional Security for Deployment on Docker/Cloud use(Commit out if not using Docker
+#------------------------------------------------------------------------------------------------------------------------------
+#Layer 4 - IaC (Cloud): Is this confiugured securely? Are you running root? Unsafe defaults? Permissions too broad?
+#Focus on misconfiguration and insecure setup
+  infrastructure-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkov (IaC Scan)
+        uses: bridgecrewio/checkov-action@master #scans Dockerfile and GitHub actions for misconfigurations like running container as root
+        with:
+          directory: .
+          framework: dockerfile, github_actionsz
+          
+#Layer 5 - Container Security: Checks actual Docker Image, does image contain vulnerable packages? Is Linux image outdated? Known CVEs in container?
+#Focus on OS vulnerabilities and Docker Image
   container-security:
     runs-on: ubuntu-latest
     steps:
@@ -111,9 +117,11 @@ jobs:
          exit-code: '1'
          ignore-unfixed: true #Filters "noise", often vulnerabilities are found that don't have a fix yet so we don't respond
          severity: 'CRITICAL,HIGH' #threshhold for guardian to not stop the development because of a low level risk
-         
+
+   #Ties everything tother
   gatekeeper:
     needs: [Vulnerability-triage, static-analysis, infrastructure-security, dependency-audit, container-security] #Ensures all scans finish first
+    #In order to run gatekeeper you need the followng so comment out cloud security if needed
     runs-on: ubuntu-latest
     if: always() #runs even if previous steps failed so failure is reported
     steps:
@@ -127,6 +135,6 @@ jobs:
           echo " Security Breach Detected. Found Vulnerabilities. Deployment Blocked. "
           exit 1
           
-          #Secret Orchestration(AWS Secrets Manager, HashiCorp Vault)
-          #WAF(Cloud Flare)
-          #Supply Chain Integrity(Sign commits with GPG Key)
+  #Secret Orchestration(AWS Secrets Manager, HashiCorp Vault)
+  #WAF(Cloud Flare)
+  #Supply Chain Integrity(Sign commits with GPG Key)
